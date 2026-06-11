@@ -69,6 +69,9 @@ export interface Exception {
   description: string;
   occurredAt: string;
   handled: boolean;
+  handledBy?: string;
+  handledResult?: string;
+  handledAt?: string;
   createdAt: string;
 }
 
@@ -78,6 +81,8 @@ export interface Photo {
   filePath: string;
   caption?: string;
   uploadedAt: string;
+  category: 'normal' | 'exception';
+  exceptionId?: number;
 }
 
 export interface Statistics {

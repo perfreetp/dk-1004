@@ -38,13 +38,28 @@ export function Statistics() {
     const equipments = getEquipments();
     const batteries = getBatteries();
     
-    const headers = ['任务ID', '任务名称', '地点', '时间', '机型', '载荷类型', '飞行员', '设备', '电池', '状态', '起飞时间', '返航时间', '异常数量', '照片数量'];
+    const headers = [
+      '任务ID', '任务名称', '地点', '时间', '机型', '载荷类型', '飞行员', '设备', '电池', 
+      '状态', '起飞时间', '返航时间', '异常数量', '已处理异常', '未处理异常',
+      '照片数量', '普通照片', '异常照片', '异常详情', '照片清单'
+    ];
     const rows = tasks.map((task) => {
       const pilot = pilots.find((p) => p.id === task.pilotId);
       const equipment = equipments.find((e) => e.id === task.equipmentId);
       const battery = batteries.find((b) => b.id === task.batteryId);
       const taskExceptions = exceptions.filter((e) => e.taskId === task.id);
       const taskPhotos = getPhotosByTaskId(task.id);
+      const handledExceptions = taskExceptions.filter(e => e.handled);
+      const normalPhotos = taskPhotos.filter(p => p.category === 'normal');
+      const exceptionPhotos = taskPhotos.filter(p => p.category === 'exception');
+      
+      const exceptionDetails = taskExceptions.map(e => 
+        `${e.type}(${e.handled ? '已处理' : '待处理'}): ${e.description}${e.handled && e.handledBy ? ` [处理人: ${e.handledBy}]` : ''}`
+      ).join('; ');
+      
+      const photoList = taskPhotos.map(p => 
+        `${p.caption || '无标题'}(${p.category === 'normal' ? '普通' : '异常'})`
+      ).join('; ');
       
       return [
         task.id,
@@ -60,7 +75,13 @@ export function Statistics() {
         task.takeoffTime ? new Date(task.takeoffTime).toLocaleString('zh-CN') : '-',
         task.landingTime ? new Date(task.landingTime).toLocaleString('zh-CN') : '-',
         taskExceptions.length,
+        handledExceptions.length,
+        taskExceptions.length - handledExceptions.length,
         taskPhotos.length,
+        normalPhotos.length,
+        exceptionPhotos.length,
+        `"${exceptionDetails}"`,
+        `"${photoList}"`,
       ];
     });
 

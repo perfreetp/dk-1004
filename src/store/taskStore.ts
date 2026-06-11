@@ -21,8 +21,10 @@ interface TaskStore {
   getRoutes: () => Route[];
   
   addException: (exception: Omit<Exception, 'id' | 'createdAt'>) => void;
+  updateException: (id: number, updates: Partial<Pick<Exception, 'handledBy' | 'handledResult'>>) => void;
   addPhoto: (photo: Omit<Photo, 'id' | 'uploadedAt'>) => void;
   getPhotosByTaskId: (taskId: number) => Photo[];
+  getPhotosByCategory: (taskId: number, category: 'normal' | 'exception') => Photo[];
   deletePhoto: (photoId: number) => void;
   
   getTasksByStatus: (status: Task['status']) => Task[];
@@ -193,6 +195,7 @@ const initialPhotos: Photo[] = [
     filePath: 'https://neeko-copilot.bytedance.net/api/text_to_image?prompt=drone%20delivery%20logistics%20warehouse%20aerial%20view&image_size=landscape_16_9',
     caption: '配送现场照片',
     uploadedAt: '2024-01-14T10:30:00',
+    category: 'normal',
   },
 ];
 
@@ -319,15 +322,25 @@ export const useTaskStore = create<TaskStore>()(
         }],
       })),
 
+      updateException: (id, updates) => set((state) => ({
+        exceptions: state.exceptions.map((ex) =>
+          ex.id === id ? { ...ex, ...updates, handled: true, handledAt: new Date().toISOString() } : ex
+        ),
+      })),
+
       addPhoto: (photo) => set((state) => ({
         photos: [...state.photos, {
           ...photo,
           id: Math.max(...state.photos.map(p => p.id), 0) + 1,
           uploadedAt: new Date().toISOString(),
+          category: photo.category || 'normal',
         }],
       })),
 
       getPhotosByTaskId: (taskId) => get().photos.filter((photo) => photo.taskId === taskId),
+      
+      getPhotosByCategory: (taskId, category: 'normal' | 'exception') => 
+        get().photos.filter((photo) => photo.taskId === taskId && photo.category === category),
 
       deletePhoto: (photoId) => set((state) => ({
         photos: state.photos.filter((photo) => photo.id !== photoId),
@@ -342,24 +355,28 @@ export const useTaskStore = create<TaskStore>()(
       getBatteries: () => get().resources.filter((r) => r.type === 'battery'),
 
       checkResourceConflict: (resourceType, resourceId, dateTime, excludeTaskId) => {
-        const taskDateTime = new Date(dateTime).getTime();
-        const taskDuration = 60 * 60 * 1000;
+        const newTaskStart = new Date(dateTime).getTime();
+        const newTaskDuration = 60 * 60 * 1000;
+        const newTaskEnd = newTaskStart + newTaskDuration;
         
         const conflictingTask = get().tasks.find((task) => {
           if (task.id === excludeTaskId) return false;
           if (task.status === 'completed') return false;
           
-          const taskTime = new Date(task.dateTime).getTime();
-          const taskEndTime = taskTime + taskDuration;
+          const existingTaskStart = new Date(task.dateTime).getTime();
+          const existingTaskDuration = 60 * 60 * 1000;
+          const existingTaskEnd = existingTaskStart + existingTaskDuration;
           
-          if (resourceType === 'pilot' && task.pilotId === resourceId) {
-            return taskDateTime >= taskTime && taskDateTime < taskEndTime;
+          const hasOverlap = newTaskStart < existingTaskEnd && newTaskEnd > existingTaskStart;
+          
+          if (resourceType === 'pilot' && task.pilotId === resourceId && hasOverlap) {
+            return true;
           }
-          if (resourceType === 'equipment' && task.equipmentId === resourceId) {
-            return taskDateTime >= taskTime && taskDateTime < taskEndTime;
+          if (resourceType === 'equipment' && task.equipmentId === resourceId && hasOverlap) {
+            return true;
           }
-          if (resourceType === 'battery' && task.batteryId === resourceId) {
-            return taskDateTime >= taskTime && taskDateTime < taskEndTime;
+          if (resourceType === 'battery' && task.batteryId === resourceId && hasOverlap) {
+            return true;
           }
           
           return false;
