@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import type { Task, Route, Resource, Exception, Photo } from '@/types';
 
 interface TaskStore {
@@ -21,11 +22,16 @@ interface TaskStore {
   
   addException: (exception: Omit<Exception, 'id' | 'createdAt'>) => void;
   addPhoto: (photo: Omit<Photo, 'id' | 'uploadedAt'>) => void;
+  getPhotosByTaskId: (taskId: number) => Photo[];
   
   getTasksByStatus: (status: Task['status']) => Task[];
   getPilots: () => Resource[];
   getEquipments: () => Resource[];
   getBatteries: () => Resource[];
+  
+  getResourceBookings: (resourceId: number) => Task[];
+  getTasksByDate: (date: string) => Task[];
+  getDelayReasons: () => { reason: string; count: number }[];
 }
 
 const initialTasks: Task[] = [
@@ -174,78 +180,125 @@ const initialPhotos: Photo[] = [
   },
 ];
 
-export const useTaskStore = create<TaskStore>((set, get) => ({
-  tasks: initialTasks,
-  routes: initialRoutes,
-  resources: initialResources,
-  exceptions: initialExceptions,
-  photos: initialPhotos,
+export const useTaskStore = create<TaskStore>()(
+  persist(
+    (set, get) => ({
+      tasks: initialTasks,
+      routes: initialRoutes,
+      resources: initialResources,
+      exceptions: initialExceptions,
+      photos: initialPhotos,
 
-  addTask: (task) => set((state) => ({
-    tasks: [...state.tasks, {
-      ...task,
-      id: state.tasks.length + 1,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    }],
-  })),
+      addTask: (task) => set((state) => ({
+        tasks: [...state.tasks, {
+          ...task,
+          id: Math.max(...state.tasks.map(t => t.id), 0) + 1,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }],
+      })),
 
-  updateTask: (id, updates) => set((state) => ({
-    tasks: state.tasks.map((task) =>
-      task.id === id ? { ...task, ...updates, updatedAt: new Date().toISOString() } : task
-    ),
-  })),
+      updateTask: (id, updates) => set((state) => ({
+        tasks: state.tasks.map((task) =>
+          task.id === id ? { ...task, ...updates, updatedAt: new Date().toISOString() } : task
+        ),
+      })),
 
-  deleteTask: (id) => set((state) => ({
-    tasks: state.tasks.filter((task) => task.id !== id),
-  })),
+      deleteTask: (id) => set((state) => ({
+        tasks: state.tasks.filter((task) => task.id !== id),
+      })),
 
-  getTaskById: (id) => get().tasks.find((task) => task.id === id),
+      getTaskById: (id) => get().tasks.find((task) => task.id === id),
 
-  addRoute: (route) => set((state) => ({
-    routes: [...state.routes, {
-      ...route,
-      id: state.routes.length + 1,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    }],
-  })),
+      addRoute: (route) => set((state) => ({
+        routes: [...state.routes, {
+          ...route,
+          id: Math.max(...state.routes.map(r => r.id), 0) + 1,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }],
+      })),
 
-  updateRoute: (id, updates) => set((state) => ({
-    routes: state.routes.map((route) =>
-      route.id === id ? { ...route, ...updates, updatedAt: new Date().toISOString() } : route
-    ),
-  })),
+      updateRoute: (id, updates) => set((state) => ({
+        routes: state.routes.map((route) =>
+          route.id === id ? { ...route, ...updates, updatedAt: new Date().toISOString() } : route
+        ),
+      })),
 
-  deleteRoute: (id) => set((state) => ({
-    routes: state.routes.filter((route) => route.id !== id),
-  })),
+      deleteRoute: (id) => set((state) => ({
+        routes: state.routes.filter((route) => route.id !== id),
+      })),
 
-  getRouteById: (id) => get().routes.find((route) => route.id === id),
+      getRouteById: (id) => get().routes.find((route) => route.id === id),
 
-  getRoutes: () => get().routes,
+      getRoutes: () => get().routes,
 
-  addException: (exception) => set((state) => ({
-    exceptions: [...state.exceptions, {
-      ...exception,
-      id: state.exceptions.length + 1,
-      createdAt: new Date().toISOString(),
-    }],
-  })),
+      addException: (exception) => set((state) => ({
+        exceptions: [...state.exceptions, {
+          ...exception,
+          id: Math.max(...state.exceptions.map(e => e.id), 0) + 1,
+          createdAt: new Date().toISOString(),
+        }],
+      })),
 
-  addPhoto: (photo) => set((state) => ({
-    photos: [...state.photos, {
-      ...photo,
-      id: state.photos.length + 1,
-      uploadedAt: new Date().toISOString(),
-    }],
-  })),
+      addPhoto: (photo) => set((state) => ({
+        photos: [...state.photos, {
+          ...photo,
+          id: Math.max(...state.photos.map(p => p.id), 0) + 1,
+          uploadedAt: new Date().toISOString(),
+        }],
+      })),
 
-  getTasksByStatus: (status) => get().tasks.filter((task) => task.status === status),
+      getPhotosByTaskId: (taskId) => get().photos.filter((photo) => photo.taskId === taskId),
 
-  getPilots: () => get().resources.filter((r) => r.type === 'pilot'),
+      getTasksByStatus: (status) => get().tasks.filter((task) => task.status === status),
 
-  getEquipments: () => get().resources.filter((r) => r.type === 'equipment'),
+      getPilots: () => get().resources.filter((r) => r.type === 'pilot'),
 
-  getBatteries: () => get().resources.filter((r) => r.type === 'battery'),
-}));
+      getEquipments: () => get().resources.filter((r) => r.type === 'equipment'),
+
+      getBatteries: () => get().resources.filter((r) => r.type === 'battery'),
+
+      getResourceBookings: (resourceId) => {
+        const pilots = get().getPilots();
+        const pilot = pilots.find(p => p.id === resourceId);
+        if (pilot) {
+          return get().tasks.filter(t => t.pilotId === resourceId);
+        }
+        return [];
+      },
+
+      getTasksByDate: (date) => {
+        return get().tasks.filter((task) => {
+          const taskDate = new Date(task.dateTime).toLocaleDateString('zh-CN');
+          return taskDate === date;
+        });
+      },
+
+      getDelayReasons: () => {
+        const exceptions = get().exceptions;
+        const reasonCounts: Record<string, number> = {};
+        
+        exceptions.forEach((ex) => {
+          reasonCounts[ex.type] = (reasonCounts[ex.type] || 0) + 1;
+        });
+
+        const delayedTasks = get().tasks.filter((t) => {
+          if (t.status !== 'completed') return false;
+          const plannedTime = new Date(t.dateTime).getTime();
+          const actualTime = new Date(t.landingTime || t.dateTime).getTime();
+          return actualTime > plannedTime + 30 * 60 * 1000;
+        });
+        
+        delayedTasks.forEach(() => {
+          reasonCounts['任务延误'] = (reasonCounts['任务延误'] || 0) + 1;
+        });
+
+        return Object.entries(reasonCounts).map(([reason, count]) => ({ reason, count }));
+      },
+    }),
+    {
+      name: 'flight-task-scheduler-storage',
+    }
+  )
+);

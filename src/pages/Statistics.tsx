@@ -2,7 +2,7 @@ import { useTaskStore } from '@/store/taskStore';
 import { Download, TrendingUp, Calendar, BarChart3, PieChart } from 'lucide-react';
 
 export function Statistics() {
-  const { tasks, exceptions } = useTaskStore();
+  const { tasks, exceptions, getDelayReasons, getPilots } = useTaskStore();
 
   const totalTasks = tasks.length;
   const completedTasks = tasks.filter((t) => t.status === 'completed').length;
@@ -15,36 +15,39 @@ export function Statistics() {
     return acc;
   }, {} as Record<string, number>);
 
-  const delayReasons = [
-    { reason: '天气原因', count: 3 },
-    { reason: '设备故障', count: 2 },
-    { reason: '空域限制', count: 1 },
-    { reason: '人员安排', count: 4 },
-    { reason: '其他', count: 2 },
-  ];
+  const delayReasons = getDelayReasons();
 
-  const topPilots = [
-    { name: '张飞行员', tasks: 12, completion: 92 },
-    { name: '李飞行员', tasks: 10, completion: 88 },
-    { name: '王飞行员', tasks: 8, completion: 85 },
-  ];
-
-  const getMaxValue = (data: number[]) => Math.max(...data);
+  const pilots = getPilots();
+  const topPilots = pilots.map((pilot) => {
+    const pilotTasks = tasks.filter((t) => t.pilotId === pilot.id);
+    const completed = pilotTasks.filter((t) => t.status === 'completed').length;
+    const completion = pilotTasks.length > 0 ? Math.round((completed / pilotTasks.length) * 100) : 0;
+    return {
+      name: pilot.name,
+      tasks: pilotTasks.length,
+      completion,
+    };
+  }).sort((a, b) => b.tasks - a.tasks).slice(0, 3);
 
   const handleExport = () => {
-    const csvContent = [
-      ['任务ID', '任务名称', '地点', '时间', '机型', '载荷类型', '状态'].join(','),
-      ...tasks.map((task) => [
+    const headers = ['任务ID', '任务名称', '地点', '时间', '机型', '载荷类型', '飞行员', '状态', '起飞时间', '返航时间'];
+    const rows = tasks.map((task) => {
+      const pilot = pilots.find((p) => p.id === task.pilotId);
+      return [
         task.id,
         `"${task.name}"`,
         `"${task.location}"`,
-        task.dateTime,
+        new Date(task.dateTime).toLocaleString('zh-CN'),
         task.aircraftModel,
         task.payloadType,
+        pilot?.name || '未指派',
         task.status === 'pending' ? '待派发' : task.status === 'active' ? '执行中' : '已完成',
-      ].join(',')),
-    ].join('\n');
+        task.takeoffTime ? new Date(task.takeoffTime).toLocaleString('zh-CN') : '-',
+        task.landingTime ? new Date(task.landingTime).toLocaleString('zh-CN') : '-',
+      ];
+    });
 
+    const csvContent = [headers.join(','), ...rows.map((row) => row.join(','))].join('\n');
     const blob = new Blob([`\uFEFF${csvContent}`], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -54,6 +57,8 @@ export function Statistics() {
     link.click();
     document.body.removeChild(link);
   };
+
+  const getMaxValue = (data: number[]) => Math.max(...data, 1);
 
   return (
     <div className="p-6">
@@ -148,24 +153,30 @@ export function Statistics() {
         <div className="card">
           <h3 className="font-semibold text-gray-900 mb-4">延误原因分析</h3>
           <div className="space-y-4">
-            {delayReasons.map((item) => {
-              const maxCount = getMaxValue(delayReasons.map((r) => r.count));
-              const percentage = Math.round((item.count / maxCount) * 100);
-              return (
-                <div key={item.reason}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-sm text-gray-700">{item.reason}</span>
-                    <span className="text-sm text-gray-500">{item.count}次</span>
+            {delayReasons.length > 0 ? (
+              delayReasons.map((item) => {
+                const maxCount = getMaxValue(delayReasons.map((r) => r.count));
+                const percentage = Math.round((item.count / maxCount) * 100);
+                return (
+                  <div key={item.reason}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-sm text-gray-700">{item.reason}</span>
+                      <span className="text-sm text-gray-500">{item.count}次</span>
+                    </div>
+                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-accent-500 rounded-full transition-all duration-500"
+                        style={{ width: `${percentage}%` }}
+                      />
+                    </div>
                   </div>
-                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-accent-500 rounded-full transition-all duration-500"
-                      style={{ width: `${percentage}%` }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })
+            ) : (
+              <div className="text-center py-8 text-gray-500">
+                <p className="text-sm">暂无延误数据</p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -214,6 +225,13 @@ export function Statistics() {
                     </td>
                   </tr>
                 ))}
+                {topPilots.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="py-8 text-center text-gray-500">
+                      暂无飞手数据
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>

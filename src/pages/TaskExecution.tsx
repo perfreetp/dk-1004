@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTaskStore } from '@/store/taskStore';
-import { ArrowLeft, MapPin, Calendar, Plane, User, AlertTriangle, Camera, Clock, CheckCircle } from 'lucide-react';
+import { ArrowLeft, MapPin, Calendar, Plane, User, AlertTriangle, Camera, Clock, CheckCircle, X } from 'lucide-react';
 import type { Exception } from '@/types';
 
 interface TaskExecutionProps {
@@ -11,11 +11,12 @@ interface TaskExecutionProps {
 const exceptionTypes = ['天气异常', '设备故障', '信号丢失', '电量不足', '人为因素', '其他'];
 
 export function TaskExecution({ taskId, onBack }: TaskExecutionProps) {
-  const { getTaskById, getPilots, getRouteById, exceptions, addException, addPhoto, updateTask } = useTaskStore();
+  const { getTaskById, getPilots, getRouteById, exceptions, addException, addPhoto, getPhotosByTaskId, updateTask } = useTaskStore();
   const task = getTaskById(taskId);
   const pilot = task ? getPilots().find((p) => p.id === task.pilotId) : undefined;
   const route = task ? getRouteById(task.routeId) : undefined;
   const taskExceptions = exceptions.filter((e) => e.taskId === taskId);
+  const taskPhotos = getPhotosByTaskId(taskId);
 
   const [newException, setNewException] = useState({
     type: '',
@@ -24,6 +25,7 @@ export function TaskExecution({ taskId, onBack }: TaskExecutionProps) {
 
   const [showExceptionForm, setShowExceptionForm] = useState(false);
   const [photoCaption, setPhotoCaption] = useState('');
+  const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
 
   const formatDate = (dateString?: string) => {
     if (!dateString) return '-';
@@ -53,7 +55,7 @@ export function TaskExecution({ taskId, onBack }: TaskExecutionProps) {
   };
 
   const handleAddPhoto = () => {
-    const randomPhoto = `https://neeko-copilot.bytedance.net/api/text_to_image?prompt=drone%20aerial%20photography%20landscape%20${Math.random().toString(36).substr(2, 9)}&image_size=landscape_16_9`;
+    const randomPhoto = `https://neeko-copilot.bytedance.net/api/text_to_image?prompt=drone%20aerial%20photography%20industrial%20inspection%20${Date.now()}&image_size=landscape_16_9`;
     
     addPhoto({
       taskId,
@@ -243,7 +245,7 @@ export function TaskExecution({ taskId, onBack }: TaskExecutionProps) {
             {taskExceptions.length === 0 ? (
               <p className="text-gray-500 text-sm">暂无异常记录</p>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-3 max-h-60 overflow-y-auto">
                 {taskExceptions.map((ex: Exception) => (
                   <div key={ex.id} className="p-3 bg-red-50 rounded-lg">
                     <div className="flex items-center justify-between mb-1">
@@ -272,7 +274,7 @@ export function TaskExecution({ taskId, onBack }: TaskExecutionProps) {
           </div>
 
           <div className="card">
-            <h3 className="font-semibold text-gray-900 mb-4">现场照片</h3>
+            <h3 className="font-semibold text-gray-900 mb-4">现场相册</h3>
             <div className="space-y-3">
               <div className="flex items-center gap-2">
                 <input
@@ -287,16 +289,35 @@ export function TaskExecution({ taskId, onBack }: TaskExecutionProps) {
                   拍摄
                 </button>
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="aspect-video bg-gray-100 rounded-lg overflow-hidden">
-                    <img
-                      src={`https://neeko-copilot.bytedance.net/api/text_to_image?prompt=drone%20photography%20industrial%20inspection%20${i}&image_size=landscape_16_9`}
-                      alt={`现场照片 ${i}`}
-                      className="w-full h-full object-cover"
-                    />
+              <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto">
+                {taskPhotos.length > 0 ? (
+                  taskPhotos.map((photo) => (
+                    <div 
+                      key={photo.id} 
+                      className="aspect-video bg-gray-100 rounded-lg overflow-hidden relative group cursor-pointer"
+                    >
+                      <img
+                        src={photo.filePath}
+                        alt={photo.caption || '现场照片'}
+                        className="w-full h-full object-cover"
+                        onClick={() => setSelectedPhoto(photo.filePath)}
+                      />
+                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                        <span className="text-white text-sm bg-black/50 px-2 py-1 rounded">查看大图</span>
+                      </div>
+                      <div className="absolute bottom-1 left-1 right-1">
+                        <p className="text-xs text-white bg-black/50 px-2 py-1 rounded truncate">
+                          {photo.caption || '现场照片'}
+                        </p>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="col-span-2 text-center py-8 text-gray-400">
+                    <Camera className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">暂无照片</p>
                   </div>
-                ))}
+                )}
               </div>
             </div>
           </div>
@@ -344,6 +365,22 @@ export function TaskExecution({ taskId, onBack }: TaskExecutionProps) {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {selectedPhoto && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+          <button
+            onClick={() => setSelectedPhoto(null)}
+            className="absolute top-4 right-4 p-2 text-white hover:bg-white/20 rounded-full transition-colors"
+          >
+            <X className="w-6 h-6" />
+          </button>
+          <img
+            src={selectedPhoto}
+            alt="大图查看"
+            className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg"
+          />
         </div>
       )}
     </div>
