@@ -1,14 +1,18 @@
 import { useTaskStore } from '@/store/taskStore';
-import { Download, TrendingUp, Calendar, BarChart3, PieChart } from 'lucide-react';
+import { Download, TrendingUp, Calendar, Users, Battery, Cpu, AlertCircle, CheckCircle2, Clock } from 'lucide-react';
 
 export function Statistics() {
-  const { tasks, exceptions, getDelayReasons, getPilots } = useTaskStore();
+  const { tasks, getDelayReasons, getPilots, getResourceUtilization, getExceptionStats, getOnTimeRate } = useTaskStore();
 
   const totalTasks = tasks.length;
   const completedTasks = tasks.filter((t) => t.status === 'completed').length;
   const activeTasks = tasks.filter((t) => t.status === 'active').length;
   const pendingTasks = tasks.filter((t) => t.status === 'pending').length;
   const completionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+  
+  const resourceUtilization = getResourceUtilization();
+  const exceptionStats = getExceptionStats();
+  const onTimeRate = getOnTimeRate();
 
   const tasksByType = tasks.reduce((acc, task) => {
     acc[task.payloadType] = (acc[task.payloadType] || 0) + 1;
@@ -30,9 +34,18 @@ export function Statistics() {
   }).sort((a, b) => b.tasks - a.tasks).slice(0, 3);
 
   const handleExport = () => {
-    const headers = ['任务ID', '任务名称', '地点', '时间', '机型', '载荷类型', '飞行员', '状态', '起飞时间', '返航时间'];
+    const { getEquipments, getBatteries, exceptions, getPhotosByTaskId } = useTaskStore.getState();
+    const equipments = getEquipments();
+    const batteries = getBatteries();
+    
+    const headers = ['任务ID', '任务名称', '地点', '时间', '机型', '载荷类型', '飞行员', '设备', '电池', '状态', '起飞时间', '返航时间', '异常数量', '照片数量'];
     const rows = tasks.map((task) => {
       const pilot = pilots.find((p) => p.id === task.pilotId);
+      const equipment = equipments.find((e) => e.id === task.equipmentId);
+      const battery = batteries.find((b) => b.id === task.batteryId);
+      const taskExceptions = exceptions.filter((e) => e.taskId === task.id);
+      const taskPhotos = getPhotosByTaskId(task.id);
+      
       return [
         task.id,
         `"${task.name}"`,
@@ -41,9 +54,13 @@ export function Statistics() {
         task.aircraftModel,
         task.payloadType,
         pilot?.name || '未指派',
+        equipment?.name || '未分配',
+        battery?.name || '未分配',
         task.status === 'pending' ? '待派发' : task.status === 'active' ? '执行中' : '已完成',
         task.takeoffTime ? new Date(task.takeoffTime).toLocaleString('zh-CN') : '-',
         task.landingTime ? new Date(task.landingTime).toLocaleString('zh-CN') : '-',
+        taskExceptions.length,
+        taskPhotos.length,
       ];
     });
 
@@ -103,24 +120,24 @@ export function Statistics() {
 
         <div className="card">
           <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-yellow-100 rounded-xl flex items-center justify-center">
-              <BarChart3 className="w-6 h-6 text-yellow-600" />
+            <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center">
+              <Clock className="w-6 h-6 text-purple-600" />
             </div>
             <div>
-              <p className="text-sm text-gray-500">执行中</p>
-              <p className="text-2xl font-bold text-gray-900">{activeTasks}</p>
+              <p className="text-sm text-gray-500">准点率</p>
+              <p className="text-2xl font-bold text-gray-900">{onTimeRate}%</p>
             </div>
           </div>
         </div>
 
         <div className="card">
           <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-red-100 rounded-xl flex items-center justify-center">
-              <PieChart className="w-6 h-6 text-red-600" />
+            <div className="w-12 h-12 bg-orange-100 rounded-xl flex items-center justify-center">
+              <AlertCircle className="w-6 h-6 text-orange-600" />
             </div>
             <div>
-              <p className="text-sm text-gray-500">异常数量</p>
-              <p className="text-2xl font-bold text-gray-900">{exceptions.length}</p>
+              <p className="text-sm text-gray-500">未处理异常</p>
+              <p className="text-2xl font-bold text-gray-900">{exceptionStats.unhandled}</p>
             </div>
           </div>
         </div>
@@ -234,6 +251,81 @@ export function Statistics() {
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+
+        <div className="col-span-2 card">
+          <h3 className="font-semibold text-gray-900 mb-4">资源利用率</h3>
+          <div className="space-y-4">
+            {resourceUtilization.length > 0 ? (
+              resourceUtilization.map((resource) => {
+                const IconComponent = resource.type === 'pilot' ? Users : resource.type === 'equipment' ? Cpu : Battery;
+                const typeLabel = resource.type === 'pilot' ? '飞手' : resource.type === 'equipment' ? '设备' : '电池';
+                return (
+                  <div key={`${resource.type}-${resource.name}`} className="flex items-center gap-4">
+                    <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center">
+                      <IconComponent className="w-5 h-5 text-gray-600" />
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-gray-900">{resource.name}</span>
+                          <span className="text-xs px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full">{typeLabel}</span>
+                        </div>
+                        <span className="text-sm text-gray-500">{resource.totalTasks} 任务</span>
+                      </div>
+                      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-primary-600 rounded-full transition-all duration-500"
+                          style={{ width: `${resource.utilization}%` }}
+                        />
+                      </div>
+                      <div className="flex justify-end mt-1">
+                        <span className="text-xs text-gray-500">{resource.utilization}%</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="text-center py-8 text-gray-500">
+                <p className="text-sm">暂无资源数据</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="card">
+          <h3 className="font-semibold text-gray-900 mb-4">异常处理状态</h3>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between p-3 bg-red-50 rounded-lg">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-5 h-5 text-red-500" />
+                <span className="text-gray-700">待处理</span>
+              </div>
+              <span className="text-xl font-bold text-red-600">{exceptionStats.unhandled}</span>
+            </div>
+            <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-5 h-5 text-green-500" />
+                <span className="text-gray-700">已处理</span>
+              </div>
+              <span className="text-xl font-bold text-green-600">{exceptionStats.handled}</span>
+            </div>
+            <div className="pt-3 border-t border-gray-100">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm text-gray-600">处理率</span>
+                <span className="text-sm font-medium text-gray-900">
+                  {exceptionStats.total > 0 ? Math.round((exceptionStats.handled / exceptionStats.total) * 100) : 0}%
+                </span>
+              </div>
+              <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-green-500 rounded-full"
+                  style={{ width: `${exceptionStats.total > 0 ? (exceptionStats.handled / exceptionStats.total) * 100 : 0}%` }}
+                />
+              </div>
+            </div>
           </div>
         </div>
 

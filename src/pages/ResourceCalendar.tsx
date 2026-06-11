@@ -70,6 +70,12 @@ export function ResourceCalendar() {
           if (selectedResource.type === 'pilot') {
             return t.pilotId === selectedResource.id;
           }
+          if (selectedResource.type === 'equipment') {
+            return t.equipmentId === selectedResource.id;
+          }
+          if (selectedResource.type === 'battery') {
+            return t.batteryId === selectedResource.id;
+          }
           return false;
         })
       : tasks;
@@ -148,7 +154,24 @@ export function ResourceCalendar() {
   const monthDays = getMonthDays();
 
   const getDateTasks = (date: string) => {
-    return tasks.filter(t => new Date(t.dateTime).toLocaleDateString('zh-CN') === date);
+    let filteredTasks = tasks.filter(t => new Date(t.dateTime).toLocaleDateString('zh-CN') === date);
+    
+    if (selectedResource) {
+      filteredTasks = filteredTasks.filter(t => {
+        if (selectedResource.type === 'pilot') {
+          return t.pilotId === selectedResource.id;
+        }
+        if (selectedResource.type === 'equipment') {
+          return t.equipmentId === selectedResource.id;
+        }
+        if (selectedResource.type === 'battery') {
+          return t.batteryId === selectedResource.id;
+        }
+        return false;
+      });
+    }
+    
+    return filteredTasks;
   };
 
   return (
@@ -306,6 +329,12 @@ export function ResourceCalendar() {
             const resourceTasks = tasks.filter(t => {
               if (resource.type === 'pilot') {
                 return t.pilotId === resource.id;
+              }
+              if (resource.type === 'equipment') {
+                return t.equipmentId === resource.id;
+              }
+              if (resource.type === 'battery') {
+                return t.batteryId === resource.id;
               }
               return false;
             });

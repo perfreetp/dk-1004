@@ -6,6 +6,8 @@ export interface Task {
   aircraftModel: string;
   payloadType: string;
   pilotId: number;
+  equipmentId: number;
+  batteryId: number;
   routeId: number;
   priority: 'high' | 'medium' | 'low';
   status: 'pending' | 'active' | 'completed';

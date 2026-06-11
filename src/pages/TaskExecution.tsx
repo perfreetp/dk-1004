@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useTaskStore } from '@/store/taskStore';
-import { ArrowLeft, MapPin, Calendar, Plane, User, AlertTriangle, Camera, Clock, CheckCircle, X } from 'lucide-react';
-import type { Exception } from '@/types';
+import { ArrowLeft, MapPin, Calendar, Plane, User, Battery, AlertTriangle, Camera, Clock, CheckCircle, X, Trash2 } from 'lucide-react';
+import type { Exception, Photo } from '@/types';
 
 interface TaskExecutionProps {
   taskId: number;
@@ -11,9 +11,11 @@ interface TaskExecutionProps {
 const exceptionTypes = ['天气异常', '设备故障', '信号丢失', '电量不足', '人为因素', '其他'];
 
 export function TaskExecution({ taskId, onBack }: TaskExecutionProps) {
-  const { getTaskById, getPilots, getRouteById, exceptions, addException, addPhoto, getPhotosByTaskId, updateTask } = useTaskStore();
+  const { getTaskById, getPilots, getEquipments, getBatteries, getRouteById, exceptions, addException, addPhoto, getPhotosByTaskId, deletePhoto, updateTask } = useTaskStore();
   const task = getTaskById(taskId);
   const pilot = task ? getPilots().find((p) => p.id === task.pilotId) : undefined;
+  const equipment = task ? getEquipments().find((e) => e.id === task.equipmentId) : undefined;
+  const battery = task ? getBatteries().find((b) => b.id === task.batteryId) : undefined;
   const route = task ? getRouteById(task.routeId) : undefined;
   const taskExceptions = exceptions.filter((e) => e.taskId === taskId);
   const taskPhotos = getPhotosByTaskId(taskId);
@@ -23,9 +25,12 @@ export function TaskExecution({ taskId, onBack }: TaskExecutionProps) {
     description: '',
   });
 
-  const [showExceptionForm, setShowExceptionForm] = useState(false);
   const [photoCaption, setPhotoCaption] = useState('');
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
+  const [showExceptionForm, setShowExceptionForm] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<number | null>(null);
+  
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const formatDate = (dateString?: string) => {
     if (!dateString) return '-';
@@ -54,7 +59,7 @@ export function TaskExecution({ taskId, onBack }: TaskExecutionProps) {
     setShowExceptionForm(false);
   };
 
-  const handleAddPhoto = () => {
+  const handleAddGeneratedPhoto = () => {
     const randomPhoto = `https://neeko-copilot.bytedance.net/api/text_to_image?prompt=drone%20aerial%20photography%20industrial%20inspection%20${Date.now()}&image_size=landscape_16_9`;
     
     addPhoto({
@@ -64,6 +69,34 @@ export function TaskExecution({ taskId, onBack }: TaskExecutionProps) {
     });
     
     setPhotoCaption('');
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    
+    Array.from(files).forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const result = event.target?.result as string;
+        addPhoto({
+          taskId,
+          filePath: result,
+          caption: photoCaption || file.name,
+        });
+      };
+      reader.readAsDataURL(file);
+    });
+    
+    setPhotoCaption('');
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleDeletePhoto = (photoId: number) => {
+    deletePhoto(photoId);
+    setShowDeleteConfirm(null);
   };
 
   const handleTakeoff = () => {
@@ -147,6 +180,20 @@ export function TaskExecution({ taskId, onBack }: TaskExecutionProps) {
                   飞行员
                 </label>
                 <p className="text-gray-900">{pilot?.name || '未指派'}</p>
+              </div>
+              <div>
+                <label className="form-label flex items-center gap-1">
+                  <Plane className="w-4 h-4" />
+                  设备
+                </label>
+                <p className="text-gray-900">{equipment?.name || '未分配'}</p>
+              </div>
+              <div>
+                <label className="form-label flex items-center gap-1">
+                  <Battery className="w-4 h-4" />
+                  电池
+                </label>
+                <p className="text-gray-900">{battery?.name || '未分配'} {battery?.batteryLevel !== undefined && `(${battery.batteryLevel}%)`}</p>
               </div>
             </div>
           </div>
@@ -284,32 +331,68 @@ export function TaskExecution({ taskId, onBack }: TaskExecutionProps) {
                   placeholder="照片描述"
                   className="flex-1 form-input text-sm"
                 />
-                <button onClick={handleAddPhoto} className="btn-primary flex items-center gap-2">
+                <button onClick={handleAddGeneratedPhoto} className="btn-primary flex items-center gap-2 text-sm px-3">
                   <Camera className="w-4 h-4" />
                   拍摄
                 </button>
+                <label className="btn-secondary flex items-center gap-2 text-sm px-3 cursor-pointer">
+                  <Camera className="w-4 h-4" />
+                  上传
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+                </label>
               </div>
               <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto">
                 {taskPhotos.length > 0 ? (
-                  taskPhotos.map((photo) => (
+                  taskPhotos.map((photo: Photo) => (
                     <div 
                       key={photo.id} 
-                      className="aspect-video bg-gray-100 rounded-lg overflow-hidden relative group cursor-pointer"
+                      className="aspect-video bg-gray-100 rounded-lg overflow-hidden relative group"
                     >
                       <img
                         src={photo.filePath}
                         alt={photo.caption || '现场照片'}
-                        className="w-full h-full object-cover"
+                        className="w-full h-full object-cover cursor-pointer"
                         onClick={() => setSelectedPhoto(photo.filePath)}
                       />
                       <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                         <span className="text-white text-sm bg-black/50 px-2 py-1 rounded">查看大图</span>
                       </div>
-                      <div className="absolute bottom-1 left-1 right-1">
-                        <p className="text-xs text-white bg-black/50 px-2 py-1 rounded truncate">
+                      <div className="absolute bottom-1 left-1 right-1 flex items-center justify-between">
+                        <p className="text-xs text-white bg-black/50 px-2 py-1 rounded truncate max-w-[70%]">
                           {photo.caption || '现场照片'}
                         </p>
+                        <button
+                          onClick={() => setShowDeleteConfirm(showDeleteConfirm === photo.id ? null : photo.id)}
+                          className="p-1 text-white bg-black/50 rounded hover:bg-red-500 transition-colors"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
                       </div>
+                      {showDeleteConfirm === photo.id && (
+                        <div className="absolute inset-x-0 bottom-0 bg-black/80 p-2 rounded-b-lg">
+                          <div className="flex items-center justify-center gap-2">
+                            <button
+                              onClick={() => handleDeletePhoto(photo.id)}
+                              className="text-red-400 text-xs px-2 py-1 hover:text-red-300"
+                            >
+                              确认删除
+                            </button>
+                            <button
+                              onClick={() => setShowDeleteConfirm(null)}
+                              className="text-white text-xs px-2 py-1 hover:text-gray-300"
+                            >
+                              取消
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))
                 ) : (

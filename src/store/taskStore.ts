@@ -9,8 +9,8 @@ interface TaskStore {
   exceptions: Exception[];
   photos: Photo[];
   
-  addTask: (task: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>) => void;
-  updateTask: (id: number, updates: Partial<Task>) => void;
+  addTask: (task: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>) => { success: boolean; conflicts?: string[] };
+  updateTask: (id: number, updates: Partial<Task>) => { success: boolean; conflicts?: string[] };
   deleteTask: (id: number) => void;
   getTaskById: (id: number) => Task | undefined;
   
@@ -23,15 +23,21 @@ interface TaskStore {
   addException: (exception: Omit<Exception, 'id' | 'createdAt'>) => void;
   addPhoto: (photo: Omit<Photo, 'id' | 'uploadedAt'>) => void;
   getPhotosByTaskId: (taskId: number) => Photo[];
+  deletePhoto: (photoId: number) => void;
   
   getTasksByStatus: (status: Task['status']) => Task[];
   getPilots: () => Resource[];
   getEquipments: () => Resource[];
   getBatteries: () => Resource[];
   
-  getResourceBookings: (resourceId: number) => Task[];
+  checkResourceConflict: (resourceType: 'pilot' | 'equipment' | 'battery', resourceId: number, dateTime: string, excludeTaskId?: number) => Task | null;
+  getResourceBookings: (resourceId: number, resourceType: 'pilot' | 'equipment' | 'battery') => Task[];
   getTasksByDate: (date: string) => Task[];
   getDelayReasons: () => { reason: string; count: number }[];
+  
+  getResourceUtilization: () => { type: string; name: string; utilization: number; totalTasks: number }[];
+  getExceptionStats: () => { total: number; handled: number; unhandled: number };
+  getOnTimeRate: () => number;
 }
 
 const initialTasks: Task[] = [
@@ -43,6 +49,8 @@ const initialTasks: Task[] = [
     aircraftModel: 'DJI Mavic 3',
     payloadType: '巡检',
     pilotId: 1,
+    equipmentId: 4,
+    batteryId: 7,
     routeId: 1,
     priority: 'high',
     status: 'pending',
@@ -57,6 +65,8 @@ const initialTasks: Task[] = [
     aircraftModel: 'DJI Phantom 4 RTK',
     payloadType: '拍摄',
     pilotId: 2,
+    equipmentId: 5,
+    batteryId: 8,
     routeId: 2,
     priority: 'medium',
     status: 'active',
@@ -72,6 +82,8 @@ const initialTasks: Task[] = [
     aircraftModel: 'DJI Matrice 300',
     payloadType: '物资投送',
     pilotId: 3,
+    equipmentId: 6,
+    batteryId: 9,
     routeId: 1,
     priority: 'high',
     status: 'completed',
@@ -88,6 +100,8 @@ const initialTasks: Task[] = [
     aircraftModel: 'DJI Mini 3 Pro',
     payloadType: '巡检',
     pilotId: 1,
+    equipmentId: 4,
+    batteryId: 10,
     routeId: 2,
     priority: 'low',
     status: 'pending',
@@ -102,6 +116,8 @@ const initialTasks: Task[] = [
     aircraftModel: 'DJI Inspire 3',
     payloadType: '巡检',
     pilotId: 2,
+    equipmentId: 5,
+    batteryId: 8,
     routeId: 1,
     priority: 'high',
     status: 'active',
@@ -189,23 +205,85 @@ export const useTaskStore = create<TaskStore>()(
       exceptions: initialExceptions,
       photos: initialPhotos,
 
-      addTask: (task) => set((state) => ({
-        tasks: [...state.tasks, {
-          ...task,
-          id: Math.max(...state.tasks.map(t => t.id), 0) + 1,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        }],
-      })),
+      addTask: (task) => {
+        const conflicts: string[] = [];
+        
+        const pilotConflict = get().checkResourceConflict('pilot', task.pilotId, task.dateTime);
+        if (pilotConflict) {
+          conflicts.push(`飞手 "${get().getPilots().find(p => p.id === task.pilotId)?.name}" 在该时间已被任务 "${pilotConflict.name}" 占用`);
+        }
+        
+        const equipmentConflict = get().checkResourceConflict('equipment', task.equipmentId, task.dateTime);
+        if (equipmentConflict) {
+          conflicts.push(`设备 "${get().getEquipments().find(e => e.id === task.equipmentId)?.name}" 在该时间已被任务 "${equipmentConflict.name}" 占用`);
+        }
+        
+        const batteryConflict = get().checkResourceConflict('battery', task.batteryId, task.dateTime);
+        if (batteryConflict) {
+          conflicts.push(`电池 "${get().getBatteries().find(b => b.id === task.batteryId)?.name}" 在该时间已被任务 "${batteryConflict.name}" 占用`);
+        }
+        
+        if (conflicts.length > 0) {
+          return { success: false, conflicts };
+        }
+        
+        set((state) => ({
+          tasks: [...state.tasks, {
+            ...task,
+            id: Math.max(...state.tasks.map(t => t.id), 0) + 1,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          }],
+        }));
+        
+        return { success: true };
+      },
 
-      updateTask: (id, updates) => set((state) => ({
-        tasks: state.tasks.map((task) =>
-          task.id === id ? { ...task, ...updates, updatedAt: new Date().toISOString() } : task
-        ),
-      })),
+      updateTask: (id, updates) => {
+        const existingTask = get().getTaskById(id);
+        if (!existingTask) return { success: false, conflicts: ['任务不存在'] };
+        
+        const conflicts: string[] = [];
+        const taskDateTime = updates.dateTime || existingTask.dateTime;
+        
+        if ('pilotId' in updates && updates.pilotId !== undefined && updates.pilotId !== existingTask.pilotId) {
+          const pilotConflict = get().checkResourceConflict('pilot', updates.pilotId, taskDateTime, id);
+          if (pilotConflict) {
+            conflicts.push(`飞手 "${get().getPilots().find(p => p.id === updates.pilotId)?.name}" 在该时间已被任务 "${pilotConflict.name}" 占用`);
+          }
+        }
+        
+        if ('equipmentId' in updates && updates.equipmentId !== undefined && updates.equipmentId !== existingTask.equipmentId) {
+          const equipmentConflict = get().checkResourceConflict('equipment', updates.equipmentId, taskDateTime, id);
+          if (equipmentConflict) {
+            conflicts.push(`设备 "${get().getEquipments().find(e => e.id === updates.equipmentId)?.name}" 在该时间已被任务 "${equipmentConflict.name}" 占用`);
+          }
+        }
+        
+        if ('batteryId' in updates && updates.batteryId !== undefined && updates.batteryId !== existingTask.batteryId) {
+          const batteryConflict = get().checkResourceConflict('battery', updates.batteryId, taskDateTime, id);
+          if (batteryConflict) {
+            conflicts.push(`电池 "${get().getBatteries().find(b => b.id === updates.batteryId)?.name}" 在该时间已被任务 "${batteryConflict.name}" 占用`);
+          }
+        }
+        
+        if (conflicts.length > 0) {
+          return { success: false, conflicts };
+        }
+        
+        set((state) => ({
+          tasks: state.tasks.map((task) =>
+            task.id === id ? { ...task, ...updates, updatedAt: new Date().toISOString() } : task
+          ),
+        }));
+        
+        return { success: true };
+      },
 
       deleteTask: (id) => set((state) => ({
         tasks: state.tasks.filter((task) => task.id !== id),
+        exceptions: state.exceptions.filter((ex) => ex.taskId !== id),
+        photos: state.photos.filter((p) => p.taskId !== id),
       })),
 
       getTaskById: (id) => get().tasks.find((task) => task.id === id),
@@ -251,6 +329,10 @@ export const useTaskStore = create<TaskStore>()(
 
       getPhotosByTaskId: (taskId) => get().photos.filter((photo) => photo.taskId === taskId),
 
+      deletePhoto: (photoId) => set((state) => ({
+        photos: state.photos.filter((photo) => photo.id !== photoId),
+      })),
+
       getTasksByStatus: (status) => get().tasks.filter((task) => task.status === status),
 
       getPilots: () => get().resources.filter((r) => r.type === 'pilot'),
@@ -259,13 +341,40 @@ export const useTaskStore = create<TaskStore>()(
 
       getBatteries: () => get().resources.filter((r) => r.type === 'battery'),
 
-      getResourceBookings: (resourceId) => {
-        const pilots = get().getPilots();
-        const pilot = pilots.find(p => p.id === resourceId);
-        if (pilot) {
-          return get().tasks.filter(t => t.pilotId === resourceId);
-        }
-        return [];
+      checkResourceConflict: (resourceType, resourceId, dateTime, excludeTaskId) => {
+        const taskDateTime = new Date(dateTime).getTime();
+        const taskDuration = 60 * 60 * 1000;
+        
+        const conflictingTask = get().tasks.find((task) => {
+          if (task.id === excludeTaskId) return false;
+          if (task.status === 'completed') return false;
+          
+          const taskTime = new Date(task.dateTime).getTime();
+          const taskEndTime = taskTime + taskDuration;
+          
+          if (resourceType === 'pilot' && task.pilotId === resourceId) {
+            return taskDateTime >= taskTime && taskDateTime < taskEndTime;
+          }
+          if (resourceType === 'equipment' && task.equipmentId === resourceId) {
+            return taskDateTime >= taskTime && taskDateTime < taskEndTime;
+          }
+          if (resourceType === 'battery' && task.batteryId === resourceId) {
+            return taskDateTime >= taskTime && taskDateTime < taskEndTime;
+          }
+          
+          return false;
+        });
+        
+        return conflictingTask || null;
+      },
+
+      getResourceBookings: (resourceId, resourceType) => {
+        return get().tasks.filter((task) => {
+          if (resourceType === 'pilot') return task.pilotId === resourceId;
+          if (resourceType === 'equipment') return task.equipmentId === resourceId;
+          if (resourceType === 'battery') return task.batteryId === resourceId;
+          return false;
+        });
       },
 
       getTasksByDate: (date) => {
@@ -295,6 +404,54 @@ export const useTaskStore = create<TaskStore>()(
         });
 
         return Object.entries(reasonCounts).map(([reason, count]) => ({ reason, count }));
+      },
+
+      getResourceUtilization: () => {
+        const allResources = get().resources;
+        const tasks = get().tasks;
+        
+        return allResources.map((resource) => {
+          const resourceTasks = tasks.filter((task) => {
+            if (resource.type === 'pilot') return task.pilotId === resource.id;
+            if (resource.type === 'equipment') return task.equipmentId === resource.id;
+            if (resource.type === 'battery') return task.batteryId === resource.id;
+            return false;
+          });
+          
+          const totalDays = 30;
+          const usedDays = new Set(resourceTasks.map(t => new Date(t.dateTime).toDateString())).size;
+          const utilization = Math.round((usedDays / totalDays) * 100);
+          
+          return {
+            type: resource.type,
+            name: resource.name,
+            utilization,
+            totalTasks: resourceTasks.length,
+          };
+        });
+      },
+
+      getExceptionStats: () => {
+        const exceptions = get().exceptions;
+        const handled = exceptions.filter((ex) => ex.handled).length;
+        return {
+          total: exceptions.length,
+          handled,
+          unhandled: exceptions.length - handled,
+        };
+      },
+
+      getOnTimeRate: () => {
+        const completedTasks = get().tasks.filter((t) => t.status === 'completed' && t.landingTime);
+        if (completedTasks.length === 0) return 0;
+        
+        const onTimeCount = completedTasks.filter((t) => {
+          const plannedTime = new Date(t.dateTime).getTime();
+          const actualTime = new Date(t.landingTime!).getTime();
+          return actualTime <= plannedTime + 30 * 60 * 1000;
+        }).length;
+        
+        return Math.round((onTimeCount / completedTasks.length) * 100);
       },
     }),
     {

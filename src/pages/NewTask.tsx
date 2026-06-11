@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTaskStore } from '@/store/taskStore';
-import { ArrowLeft, Plane, MapPin, Calendar, User, Package, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Plane, MapPin, Calendar, User, Package, Battery, AlertCircle, AlertTriangle } from 'lucide-react';
 
 interface NewTaskProps {
   onBack: () => void;
@@ -23,8 +23,10 @@ const priorities = [
 ];
 
 export function NewTask({ onBack }: NewTaskProps) {
-  const { addTask, getPilots, getRoutes } = useTaskStore();
+  const { addTask, getPilots, getEquipments, getBatteries, getRoutes } = useTaskStore();
   const pilots = getPilots().filter((p) => p.status === 'available');
+  const equipments = getEquipments().filter((e) => e.status === 'available');
+  const batteries = getBatteries().filter((b) => b.status === 'available');
   const routes = getRoutes();
 
   const [formData, setFormData] = useState({
@@ -34,12 +36,15 @@ export function NewTask({ onBack }: NewTaskProps) {
     aircraftModel: '',
     payloadType: '',
     pilotId: '',
+    equipmentId: '',
+    batteryId: '',
     routeId: '',
     priority: 'medium' as 'high' | 'medium' | 'low',
     notes: '',
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [conflictErrors, setConflictErrors] = useState<string[]>([]);
 
   const validate = () => {
     const newErrors: Record<string, string> = {};
@@ -49,6 +54,8 @@ export function NewTask({ onBack }: NewTaskProps) {
     if (!formData.aircraftModel) newErrors.aircraftModel = '请选择机型';
     if (!formData.payloadType) newErrors.payloadType = '请选择载荷类型';
     if (!formData.pilotId) newErrors.pilotId = '请指派飞行员';
+    if (!formData.equipmentId) newErrors.equipmentId = '请选择无人机设备';
+    if (!formData.batteryId) newErrors.batteryId = '请选择电池';
     if (!formData.routeId) newErrors.routeId = '请选择航线';
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -56,22 +63,30 @@ export function NewTask({ onBack }: NewTaskProps) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setConflictErrors([]);
+    
     if (!validate()) return;
 
-    addTask({
+    const result = addTask({
       name: formData.name,
       location: formData.location,
       dateTime: formData.dateTime,
       aircraftModel: formData.aircraftModel,
       payloadType: formData.payloadType,
       pilotId: parseInt(formData.pilotId),
+      equipmentId: parseInt(formData.equipmentId),
+      batteryId: parseInt(formData.batteryId),
       routeId: parseInt(formData.routeId),
       priority: formData.priority,
       status: 'pending',
       notes: formData.notes || undefined,
     });
 
-    onBack();
+    if (result.success) {
+      onBack();
+    } else {
+      setConflictErrors(result.conflicts || []);
+    }
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -82,6 +97,7 @@ export function NewTask({ onBack }: NewTaskProps) {
     if (errors[e.target.name]) {
       setErrors((prev) => ({ ...prev, [e.target.name]: '' }));
     }
+    setConflictErrors([]);
   };
 
   return (
@@ -97,6 +113,22 @@ export function NewTask({ onBack }: NewTaskProps) {
         <div className="h-6 w-px bg-gray-300"></div>
         <h2 className="text-2xl font-bold text-gray-900">新建任务</h2>
       </div>
+
+      {conflictErrors.length > 0 && (
+        <div className="card bg-red-50 border-red-200 mb-6">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-red-500 mt-0.5" />
+            <div>
+              <p className="font-medium text-red-800">资源冲突提醒</p>
+              <ul className="mt-2 space-y-1">
+                {conflictErrors.map((error, index) => (
+                  <li key={index} className="text-sm text-red-600">- {error}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="max-w-2xl">
         <div className="card mb-6">
@@ -151,7 +183,7 @@ export function NewTask({ onBack }: NewTaskProps) {
         </div>
 
         <div className="card mb-6">
-          <h3 className="font-semibold text-gray-900 mb-4">设备与人员</h3>
+          <h3 className="font-semibold text-gray-900 mb-4">设备与载荷</h3>
           <div className="space-y-4">
             <div>
               <label className="form-label flex items-center gap-1">
@@ -190,7 +222,12 @@ export function NewTask({ onBack }: NewTaskProps) {
               </select>
               {errors.payloadType && <p className="text-red-500 text-sm mt-1">{errors.payloadType}</p>}
             </div>
+          </div>
+        </div>
 
+        <div className="card mb-6">
+          <h3 className="font-semibold text-gray-900 mb-4">资源分配</h3>
+          <div className="space-y-4">
             <div>
               <label className="form-label flex items-center gap-1">
                 <User className="w-4 h-4" />
@@ -209,6 +246,48 @@ export function NewTask({ onBack }: NewTaskProps) {
               </select>
               {errors.pilotId && <p className="text-red-500 text-sm mt-1">{errors.pilotId}</p>}
             </div>
+
+            <div>
+              <label className="form-label flex items-center gap-1">
+                <Plane className="w-4 h-4" />
+                无人机设备
+              </label>
+              <select
+                name="equipmentId"
+                value={formData.equipmentId}
+                onChange={handleChange}
+                className={`form-select ${errors.equipmentId ? 'border-red-300' : ''}`}
+              >
+                <option value="">请选择无人机</option>
+                {equipments.map((equipment) => (
+                  <option key={equipment.id} value={equipment.id}>
+                    {equipment.name} (电量: {equipment.batteryLevel}%)
+                  </option>
+                ))}
+              </select>
+              {errors.equipmentId && <p className="text-red-500 text-sm mt-1">{errors.equipmentId}</p>}
+            </div>
+
+            <div>
+              <label className="form-label flex items-center gap-1">
+                <Battery className="w-4 h-4" />
+                电池
+              </label>
+              <select
+                name="batteryId"
+                value={formData.batteryId}
+                onChange={handleChange}
+                className={`form-select ${errors.batteryId ? 'border-red-300' : ''}`}
+              >
+                <option value="">请选择电池</option>
+                {batteries.map((battery) => (
+                  <option key={battery.id} value={battery.id}>
+                    {battery.name} (电量: {battery.batteryLevel}%)
+                  </option>
+                ))}
+              </select>
+              {errors.batteryId && <p className="text-red-500 text-sm mt-1">{errors.batteryId}</p>}
+            </div>
           </div>
         </div>
 
@@ -224,7 +303,7 @@ export function NewTask({ onBack }: NewTaskProps) {
                 className={`form-select ${errors.routeId ? 'border-red-300' : ''}`}
               >
                 <option value="">请选择航线</option>
-                {routes.map((route: { id: number; name: string; totalDistance: number; estimatedTime: number }) => (
+                {routes.map((route) => (
                   <option key={route.id} value={route.id}>
                     {route.name} ({route.totalDistance} km / {route.estimatedTime} min)
                   </option>
