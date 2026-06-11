@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { useTaskStore } from '@/store/taskStore';
-import { ArrowLeft, MapPin, Calendar, Plane, User, Battery, AlertTriangle, Camera, Clock, CheckCircle, X, Trash2, Edit3, Save, Cancel, Tag } from 'lucide-react';
+import { ArrowLeft, MapPin, Calendar, Plane, User, Battery, AlertTriangle, Camera, Clock, CheckCircle, X, Trash2, Edit3, Save, Cancel, Tag, FileText, RefreshCw, Upload } from 'lucide-react';
 import type { Exception, Photo } from '@/types';
 
 interface TaskExecutionProps {
@@ -21,7 +21,7 @@ const aircraftModels = [
 const payloadTypes = ['巡检', '拍摄', '物资投送', '测绘', '其他'];
 
 export function TaskExecution({ taskId, onBack }: TaskExecutionProps) {
-  const { getTaskById, getPilots, getEquipments, getBatteries, getRouteById, exceptions, addException, updateException, addPhoto, getPhotosByTaskId, deletePhoto, updateTask, getRoutes } = useTaskStore();
+  const { getTaskById, getPilots, getEquipments, getBatteries, getRouteById, exceptions, addException, updateException, addPhoto, getPhotosByTaskId, deletePhoto, updateTask, getRoutes, getTaskTimeline } = useTaskStore();
   const task = getTaskById(taskId);
   const pilot = task ? getPilots().find((p) => p.id === task.pilotId) : undefined;
   const equipment = task ? getEquipments().find((e) => e.id === task.equipmentId) : undefined;
@@ -468,6 +468,60 @@ export function TaskExecution({ taskId, onBack }: TaskExecutionProps) {
               </div>
             </div>
           </div>
+
+          <div className="card">
+            <h3 className="font-semibold text-gray-900 mb-4">任务时间线</h3>
+            <div className="relative">
+              <div className="absolute left-4 top-0 bottom-0 w-px bg-gray-200"></div>
+              <div className="space-y-4">
+                {getTaskTimeline(taskId).map((event, index) => {
+                  const getIcon = () => {
+                    switch (event.type) {
+                      case 'created': return <FileText className="w-4 h-4 text-blue-600" />;
+                      case 'updated': return <RefreshCw className="w-4 h-4 text-yellow-600" />;
+                      case 'takeoff': return <Plane className="w-4 h-4 text-green-600" />;
+                      case 'exception': return <AlertTriangle className="w-4 h-4 text-red-600" />;
+                      case 'exception_handled': return <CheckCircle className="w-4 h-4 text-green-600" />;
+                      case 'photo': return <Upload className="w-4 h-4 text-blue-600" />;
+                      case 'landing': return <CheckCircle className="w-4 h-4 text-green-600" />;
+                      default: return <Clock className="w-4 h-4 text-gray-600" />;
+                    }
+                  };
+                  const getBgColor = () => {
+                    switch (event.type) {
+                      case 'created': return 'bg-blue-50';
+                      case 'updated': return 'bg-yellow-50';
+                      case 'takeoff': return 'bg-green-50';
+                      case 'exception': return 'bg-red-50';
+                      case 'exception_handled': return 'bg-green-50';
+                      case 'photo': return 'bg-blue-50';
+                      case 'landing': return 'bg-green-50';
+                      default: return 'bg-gray-50';
+                    }
+                  };
+                  return (
+                    <div key={index} className="relative flex items-start gap-4 pl-10">
+                      <div className={`absolute left-2 top-1 w-5 h-5 rounded-full ${getBgColor()} flex items-center justify-center border-2 border-white shadow`}>
+                        {getIcon()}
+                      </div>
+                      <div className="flex-1 pb-4">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-medium text-gray-900">{event.description}</p>
+                          <span className="text-xs text-gray-500">{formatDate(event.time)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+                {getTaskTimeline(taskId).length === 0 && (
+                  <div className="text-center py-8 text-gray-500">
+                    <Clock className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">暂无时间线记录</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="space-y-6">
@@ -490,7 +544,7 @@ export function TaskExecution({ taskId, onBack }: TaskExecutionProps) {
                       }`}>
                         {ex.handled ? '已处理' : '待处理'}
                       </span>
-                      {!ex.handled && task.status !== 'completed' && (
+                      {!ex.handled && (
                         <button
                           onClick={() => {
                             setHandleException(ex);

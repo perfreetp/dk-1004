@@ -51,6 +51,11 @@ export interface Resource {
   lastMaintenance?: string;
   createdAt: string;
   updatedAt: string;
+  
+  certifications?: string[];
+  allowedTaskTypes?: string[];
+  maintenanceStatus?: 'normal' | 'maintenance' | 'needs_maintenance';
+  chargingStatus?: 'charged' | 'charging' | 'low';
 }
 
 export interface ResourceBooking {

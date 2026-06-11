@@ -33,6 +33,7 @@ interface TaskStore {
   getBatteries: () => Resource[];
   
   checkResourceConflict: (resourceType: 'pilot' | 'equipment' | 'battery', resourceId: number, dateTime: string, excludeTaskId?: number) => Task | null;
+  validateResourceSuitability: (pilotId: number, equipmentId: number, batteryId: number, payloadType: string) => string[];
   getResourceBookings: (resourceId: number, resourceType: 'pilot' | 'equipment' | 'battery') => Task[];
   getTasksByDate: (date: string) => Task[];
   getDelayReasons: () => { reason: string; count: number }[];
@@ -40,6 +41,16 @@ interface TaskStore {
   getResourceUtilization: () => { type: string; name: string; utilization: number; totalTasks: number }[];
   getExceptionStats: () => { total: number; handled: number; unhandled: number };
   getOnTimeRate: () => number;
+  
+  getTaskTimeline: (taskId: number) => { time: string; type: string; description: string }[];
+  getMonthlyData: (year: number, month: number) => {
+    tasks: Task[];
+    exceptions: Exception[];
+    photos: Photo[];
+    resourceUsage: { type: string; name: string; count: number }[];
+    dailyTaskCounts: number[];
+    dailyExceptionCounts: number[];
+  };
 }
 
 const initialTasks: Task[] = [
@@ -164,16 +175,16 @@ const initialRoutes: Route[] = [
 ];
 
 const initialResources: Resource[] = [
-  { id: 1, name: '张飞行员', type: 'pilot', status: 'available', createdAt: '2024-01-01T08:00:00', updatedAt: '2024-01-01T08:00:00' },
-  { id: 2, name: '李飞行员', type: 'pilot', status: 'available', createdAt: '2024-01-01T08:00:00', updatedAt: '2024-01-01T08:00:00' },
-  { id: 3, name: '王飞行员', type: 'pilot', status: 'unavailable', createdAt: '2024-01-01T08:00:00', updatedAt: '2024-01-15T10:00:00' },
-  { id: 4, name: '无人机-A001', type: 'equipment', status: 'available', batteryLevel: 85, lastMaintenance: '2024-01-10', createdAt: '2024-01-01T08:00:00', updatedAt: '2024-01-10T08:00:00' },
-  { id: 5, name: '无人机-A002', type: 'equipment', status: 'active', batteryLevel: 45, lastMaintenance: '2024-01-05', createdAt: '2024-01-01T08:00:00', updatedAt: '2024-01-15T10:00:00' },
-  { id: 6, name: '无人机-A003', type: 'equipment', status: 'available', batteryLevel: 90, lastMaintenance: '2024-01-12', createdAt: '2024-01-01T08:00:00', updatedAt: '2024-01-12T08:00:00' },
-  { id: 7, name: '电池-B001', type: 'battery', status: 'available', batteryLevel: 100, createdAt: '2024-01-01T08:00:00', updatedAt: '2024-01-01T08:00:00' },
-  { id: 8, name: '电池-B002', type: 'battery', status: 'active', batteryLevel: 60, createdAt: '2024-01-01T08:00:00', updatedAt: '2024-01-15T10:00:00' },
-  { id: 9, name: '电池-B003', type: 'battery', status: 'available', batteryLevel: 95, createdAt: '2024-01-01T08:00:00', updatedAt: '2024-01-01T08:00:00' },
-  { id: 10, name: '电池-B004', type: 'battery', status: 'available', batteryLevel: 80, createdAt: '2024-01-01T08:00:00', updatedAt: '2024-01-01T08:00:00' },
+  { id: 1, name: '张飞行员', type: 'pilot', status: 'available', createdAt: '2024-01-01T08:00:00', updatedAt: '2024-01-01T08:00:00', certifications: ['无人机驾驶证', '高级飞行员证'], allowedTaskTypes: ['巡检', '拍摄', '测绘'] },
+  { id: 2, name: '李飞行员', type: 'pilot', status: 'available', createdAt: '2024-01-01T08:00:00', updatedAt: '2024-01-01T08:00:00', certifications: ['无人机驾驶证'], allowedTaskTypes: ['巡检', '拍摄'] },
+  { id: 3, name: '王飞行员', type: 'pilot', status: 'unavailable', createdAt: '2024-01-01T08:00:00', updatedAt: '2024-01-15T10:00:00', certifications: ['无人机驾驶证', '高级飞行员证'], allowedTaskTypes: ['巡检', '拍摄', '物资投送', '测绘'] },
+  { id: 4, name: '无人机-A001', type: 'equipment', status: 'available', batteryLevel: 85, lastMaintenance: '2024-01-10', createdAt: '2024-01-01T08:00:00', updatedAt: '2024-01-10T08:00:00', maintenanceStatus: 'normal', allowedTaskTypes: ['巡检', '拍摄'] },
+  { id: 5, name: '无人机-A002', type: 'equipment', status: 'active', batteryLevel: 45, lastMaintenance: '2024-01-05', createdAt: '2024-01-01T08:00:00', updatedAt: '2024-01-15T10:00:00', maintenanceStatus: 'needs_maintenance', allowedTaskTypes: ['巡检', '测绘'] },
+  { id: 6, name: '无人机-A003', type: 'equipment', status: 'available', batteryLevel: 90, lastMaintenance: '2024-01-12', createdAt: '2024-01-01T08:00:00', updatedAt: '2024-01-12T08:00:00', maintenanceStatus: 'normal', allowedTaskTypes: ['物资投送', '拍摄'] },
+  { id: 7, name: '电池-B001', type: 'battery', status: 'available', batteryLevel: 100, createdAt: '2024-01-01T08:00:00', updatedAt: '2024-01-01T08:00:00', chargingStatus: 'charged' },
+  { id: 8, name: '电池-B002', type: 'battery', status: 'active', batteryLevel: 60, createdAt: '2024-01-01T08:00:00', updatedAt: '2024-01-15T10:00:00', chargingStatus: 'charged' },
+  { id: 9, name: '电池-B003', type: 'battery', status: 'available', batteryLevel: 95, createdAt: '2024-01-01T08:00:00', updatedAt: '2024-01-01T08:00:00', chargingStatus: 'charged' },
+  { id: 10, name: '电池-B004', type: 'battery', status: 'available', batteryLevel: 80, createdAt: '2024-01-01T08:00:00', updatedAt: '2024-01-01T08:00:00', chargingStatus: 'charged' },
 ];
 
 const initialExceptions: Exception[] = [
@@ -248,25 +259,30 @@ export const useTaskStore = create<TaskStore>()(
         
         const conflicts: string[] = [];
         const taskDateTime = updates.dateTime || existingTask.dateTime;
+        const isDateTimeChanged = updates.dateTime !== undefined && updates.dateTime !== existingTask.dateTime;
         
-        if ('pilotId' in updates && updates.pilotId !== undefined && updates.pilotId !== existingTask.pilotId) {
-          const pilotConflict = get().checkResourceConflict('pilot', updates.pilotId, taskDateTime, id);
+        const pilotIdToCheck = updates.pilotId !== undefined ? updates.pilotId : existingTask.pilotId;
+        const equipmentIdToCheck = updates.equipmentId !== undefined ? updates.equipmentId : existingTask.equipmentId;
+        const batteryIdToCheck = updates.batteryId !== undefined ? updates.batteryId : existingTask.batteryId;
+        
+        if (isDateTimeChanged || ('pilotId' in updates && updates.pilotId !== undefined && updates.pilotId !== existingTask.pilotId)) {
+          const pilotConflict = get().checkResourceConflict('pilot', pilotIdToCheck, taskDateTime, id);
           if (pilotConflict) {
-            conflicts.push(`飞手 "${get().getPilots().find(p => p.id === updates.pilotId)?.name}" 在该时间已被任务 "${pilotConflict.name}" 占用`);
+            conflicts.push(`飞手 "${get().getPilots().find(p => p.id === pilotIdToCheck)?.name}" 在该时间已被任务 "${pilotConflict.name}" 占用`);
           }
         }
         
-        if ('equipmentId' in updates && updates.equipmentId !== undefined && updates.equipmentId !== existingTask.equipmentId) {
-          const equipmentConflict = get().checkResourceConflict('equipment', updates.equipmentId, taskDateTime, id);
+        if (isDateTimeChanged || ('equipmentId' in updates && updates.equipmentId !== undefined && updates.equipmentId !== existingTask.equipmentId)) {
+          const equipmentConflict = get().checkResourceConflict('equipment', equipmentIdToCheck, taskDateTime, id);
           if (equipmentConflict) {
-            conflicts.push(`设备 "${get().getEquipments().find(e => e.id === updates.equipmentId)?.name}" 在该时间已被任务 "${equipmentConflict.name}" 占用`);
+            conflicts.push(`设备 "${get().getEquipments().find(e => e.id === equipmentIdToCheck)?.name}" 在该时间已被任务 "${equipmentConflict.name}" 占用`);
           }
         }
         
-        if ('batteryId' in updates && updates.batteryId !== undefined && updates.batteryId !== existingTask.batteryId) {
-          const batteryConflict = get().checkResourceConflict('battery', updates.batteryId, taskDateTime, id);
+        if (isDateTimeChanged || ('batteryId' in updates && updates.batteryId !== undefined && updates.batteryId !== existingTask.batteryId)) {
+          const batteryConflict = get().checkResourceConflict('battery', batteryIdToCheck, taskDateTime, id);
           if (batteryConflict) {
-            conflicts.push(`电池 "${get().getBatteries().find(b => b.id === updates.batteryId)?.name}" 在该时间已被任务 "${batteryConflict.name}" 占用`);
+            conflicts.push(`电池 "${get().getBatteries().find(b => b.id === batteryIdToCheck)?.name}" 在该时间已被任务 "${batteryConflict.name}" 占用`);
           }
         }
         
@@ -385,6 +401,61 @@ export const useTaskStore = create<TaskStore>()(
         return conflictingTask || null;
       },
 
+      validateResourceSuitability: (pilotId, equipmentId, batteryId, payloadType) => {
+        const errors: string[] = [];
+        const pilots = get().getPilots();
+        const equipments = get().getEquipments();
+        const batteries = get().getBatteries();
+        
+        const pilot = pilots.find(p => p.id === pilotId);
+        const equipment = equipments.find(e => e.id === equipmentId);
+        const battery = batteries.find(b => b.id === batteryId);
+        
+        if (pilot) {
+          if (pilot.status === 'unavailable') {
+            errors.push(`飞手 "${pilot.name}" 当前不可用`);
+          }
+          if (pilot.allowedTaskTypes && !pilot.allowedTaskTypes.includes(payloadType)) {
+            errors.push(`飞手 "${pilot.name}" 不具备执行 "${payloadType}" 类型任务的资质`);
+          }
+        }
+        
+        if (equipment) {
+          if (equipment.status === 'unavailable') {
+            errors.push(`设备 "${equipment.name}" 当前不可用`);
+          }
+          if (equipment.maintenanceStatus === 'maintenance') {
+            errors.push(`设备 "${equipment.name}" 正在维护中`);
+          }
+          if (equipment.maintenanceStatus === 'needs_maintenance') {
+            errors.push(`设备 "${equipment.name}" 需要维护，请优先安排维护`);
+          }
+          if (equipment.batteryLevel && equipment.batteryLevel < 20) {
+            errors.push(`设备 "${equipment.name}" 电量不足（${equipment.batteryLevel}%）`);
+          }
+          if (equipment.allowedTaskTypes && !equipment.allowedTaskTypes.includes(payloadType)) {
+            errors.push(`设备 "${equipment.name}" 不适合执行 "${payloadType}" 类型任务`);
+          }
+        }
+        
+        if (battery) {
+          if (battery.status === 'unavailable') {
+            errors.push(`电池 "${battery.name}" 当前不可用`);
+          }
+          if (battery.chargingStatus === 'charging') {
+            errors.push(`电池 "${battery.name}" 正在充电中`);
+          }
+          if (battery.chargingStatus === 'low') {
+            errors.push(`电池 "${battery.name}" 电量过低`);
+          }
+          if (battery.batteryLevel && battery.batteryLevel < 20) {
+            errors.push(`电池 "${battery.name}" 电量不足（${battery.batteryLevel}%）`);
+          }
+        }
+        
+        return errors;
+      },
+
       getResourceBookings: (resourceId, resourceType) => {
         return get().tasks.filter((task) => {
           if (resourceType === 'pilot') return task.pilotId === resourceId;
@@ -470,9 +541,137 @@ export const useTaskStore = create<TaskStore>()(
         
         return Math.round((onTimeCount / completedTasks.length) * 100);
       },
+
+      getTaskTimeline: (taskId) => {
+        const task = get().getTaskById(taskId);
+        const taskExceptions = get().exceptions.filter(e => e.taskId === taskId);
+        const taskPhotos = get().getPhotosByTaskId(taskId);
+        
+        const timeline: { time: string; type: string; description: string }[] = [];
+        
+        if (task) {
+          timeline.push({
+            time: task.createdAt,
+            type: 'created',
+            description: '任务创建',
+          });
+          
+          if (task.createdAt !== task.updatedAt) {
+            timeline.push({
+              time: task.updatedAt,
+              type: 'updated',
+              description: '任务调整',
+            });
+          }
+          
+          if (task.takeoffTime) {
+            timeline.push({
+              time: task.takeoffTime,
+              type: 'takeoff',
+              description: '无人机起飞',
+            });
+          }
+          
+          taskExceptions.forEach(ex => {
+            timeline.push({
+              time: ex.occurredAt,
+              type: 'exception',
+              description: `异常发生: ${ex.type}`,
+            });
+            
+            if (ex.handled && ex.handledAt) {
+              timeline.push({
+                time: ex.handledAt,
+                type: 'exception_handled',
+                description: `异常处理完成: ${ex.handledBy || '未知人员'}`,
+              });
+            }
+          });
+          
+          taskPhotos.forEach(photo => {
+            timeline.push({
+              time: photo.uploadedAt,
+              type: 'photo',
+              description: `照片上传: ${photo.caption || '现场照片'} (${photo.category === 'normal' ? '普通' : '异常'})`,
+            });
+          });
+          
+          if (task.landingTime) {
+            timeline.push({
+              time: task.landingTime,
+              type: 'landing',
+              description: '无人机返航',
+            });
+          }
+        }
+        
+        return timeline.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+      },
+
+      getMonthlyData: (year, month) => {
+        const tasks = get().tasks.filter(t => {
+          const taskDate = new Date(t.dateTime);
+          return taskDate.getFullYear() === year && taskDate.getMonth() === month;
+        });
+        
+        const exceptions = get().exceptions.filter(e => {
+          const exDate = new Date(e.occurredAt);
+          return exDate.getFullYear() === year && exDate.getMonth() === month;
+        });
+        
+        const photos = get().photos.filter(p => {
+          const photoDate = new Date(p.uploadedAt);
+          return photoDate.getFullYear() === year && photoDate.getMonth() === month;
+        });
+        
+        const resourceUsage: { type: string; name: string; count: number }[] = [];
+        const resourceCounts: Record<string, number> = {};
+        
+        tasks.forEach(task => {
+          const pilotKey = `pilot_${task.pilotId}`;
+          const equipmentKey = `equipment_${task.equipmentId}`;
+          const batteryKey = `battery_${task.batteryId}`;
+          
+          resourceCounts[pilotKey] = (resourceCounts[pilotKey] || 0) + 1;
+          resourceCounts[equipmentKey] = (resourceCounts[equipmentKey] || 0) + 1;
+          resourceCounts[batteryKey] = (resourceCounts[batteryKey] || 0) + 1;
+        });
+        
+        const allResources = get().resources;
+        allResources.forEach(resource => {
+          const key = `${resource.type}_${resource.id}`;
+          if (resourceCounts[key]) {
+            resourceUsage.push({
+              type: resource.type,
+              name: resource.name,
+              count: resourceCounts[key],
+            });
+          }
+        });
+        
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        const dailyTaskCounts = Array.from({ length: daysInMonth }, (_, i) => {
+          const day = i + 1;
+          return tasks.filter(t => {
+            const taskDate = new Date(t.dateTime);
+            return taskDate.getDate() === day;
+          }).length;
+        });
+        
+        const dailyExceptionCounts = Array.from({ length: daysInMonth }, (_, i) => {
+          const day = i + 1;
+          return exceptions.filter(e => {
+            const exDate = new Date(e.occurredAt);
+            return exDate.getDate() === day;
+          }).length;
+        });
+        
+        return { tasks, exceptions, photos, resourceUsage, dailyTaskCounts, dailyExceptionCounts };
+      },
     }),
     {
       name: 'flight-task-scheduler-storage',
     }
   )
 );
+

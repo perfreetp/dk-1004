@@ -23,7 +23,7 @@ const priorities = [
 ];
 
 export function NewTask({ onBack }: NewTaskProps) {
-  const { addTask, getPilots, getEquipments, getBatteries, getRoutes } = useTaskStore();
+  const { addTask, getPilots, getEquipments, getBatteries, getRoutes, validateResourceSuitability } = useTaskStore();
   const pilots = getPilots().filter((p) => p.status === 'available');
   const equipments = getEquipments().filter((e) => e.status === 'available');
   const batteries = getBatteries().filter((b) => b.status === 'available');
@@ -66,6 +66,18 @@ export function NewTask({ onBack }: NewTaskProps) {
     setConflictErrors([]);
     
     if (!validate()) return;
+
+    const suitabilityErrors = validateResourceSuitability(
+      parseInt(formData.pilotId),
+      parseInt(formData.equipmentId),
+      parseInt(formData.batteryId),
+      formData.payloadType
+    );
+    
+    if (suitabilityErrors.length > 0) {
+      setConflictErrors(suitabilityErrors);
+      return;
+    }
 
     const result = addTask({
       name: formData.name,
